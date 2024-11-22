@@ -1,0 +1,6 @@
+Flask
+requests
+bs4
+tabulate
+pandas openpyxl
+
