@@ -2,8 +2,26 @@ import sqlite3
 from tabulate import tabulate
 import pandas as pd
 
-# Nome do banco de dados
 DB_NAME = "apitoners.db"
+
+def initialize_db():
+    conn = sqlite3.connect('apitoners.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS impressoras (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            unidade TEXT NOT NULL,
+            marca TEXT NOT NULL,
+            modelo TEXT NOT NULL,
+            toner TEXT NOT NULL,
+            setor TEXT NOT NULL,
+            ip TEXT NOT NULL
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
 
 # Função para cadastrar uma impressora
 def add_printer(unidade, marca, modelo, toner, setor, ip):
@@ -76,6 +94,7 @@ while sair == False:
     if resposta == 1:
         print(get_all_printers())
     elif resposta == 2:
+        initialize_db()
         unidade = input("\nUnidade em que a impressora está: ")
         marca = input("Marca da impressora: ")
         modelo = input("Modelo da impressora: ")
@@ -85,6 +104,7 @@ while sair == False:
         
         add_printer(unidade, marca, modelo, toner, setor, ip)
     elif resposta == 3:
+        initialize_db()
         cadastrar_excel()
     elif resposta == 4:
         sair = True
