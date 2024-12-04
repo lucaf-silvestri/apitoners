@@ -5,6 +5,12 @@ from bs4 import BeautifulSoup
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import schedule
+import time
+import requests
+import threading
+from openpyxl import Workbook
+import os
 
 avisos = []
 
@@ -58,7 +64,6 @@ def initialize_db():
 
 app = Flask(__name__)
 
-# Função para acessar o banco
 def get_impressoras():
     conn = sqlite3.connect('apitoners.db')
     cursor = conn.cursor()
@@ -74,6 +79,10 @@ def get_toner_level(ip):
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, 'html.parser')
+        div_tag = soup.find('h1', {'class': 'title-lt-md'})
+        texto = div_tag.text.strip()
+        print(texto)
+    
         image = soup.find('img', {'class': 'tonerremain'})
 
         if image:
@@ -81,12 +90,9 @@ def get_toner_level(ip):
             toner_level = (height * 100) / 56
             
             if toner_level <= 100:
-                toners_baixos = toners_baixos + 1
-                avisos.append(f"{toners_baixos}. Toner baixo da impressora: {ip}. Apenas {toner_level:.2f}%.")
+                avisos.append(f"Toner baixo da impressora: {ip}. Apenas {toner_level:.2f}%.")
         
             return f"{toner_level:.2f}%"
-        else:
-            return "Imagem com a classe 'tonerremain' não encontrada."
     
     except requests.exceptions.RequestException as e:
         return f"Erro ao conectar ao IP {ip}: {e}"
@@ -94,21 +100,63 @@ def get_toner_level(ip):
     except Exception as e:
         return f"Erro inesperado ao processar IP {ip}: {e}"
 
-# Endpoint da API
+def gerar_planilha(impressoras, resultados):
+    # Nome do arquivo da planilha
+    arquivo_planilha = os.path.join(os.getcwd(), "status_impressoras.xlsx")
+    
+    # Criar workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Status Impressoras"
+    
+    # Cabeçalho
+    ws.append(["Impressora (Unidade / IP)", "Status (Toner ou Erro)"])
+    
+    # Adicionar dados
+    for i in range(len(impressoras)):
+        unidade, setor, marca, ip = impressoras[i]
+        ws.append([f"{unidade} ({ip})", resultados[i]])
+    
+    # Salvar a planilha
+    wb.save(arquivo_planilha)
+    print(f"Planilha gerada: {arquivo_planilha}")
+
 @app.route('/toner-levels', methods=['GET'])
 def toner_levels():
     impressoras = get_impressoras()
-    results = []
+    resultados = []
 
     for unidade, setor, marca, ip in impressoras:
         toner_level = get_toner_level(ip)
-        results.append({'unidade': unidade, 'setor': setor, 'marca': marca, 'ip': ip, 'toner_level': toner_level})
-        
+        resultados.append(toner_level)
+    
+    gerar_planilha(impressoras, resultados)
+    
     avisos_formatados = "\n".join(avisos)
     enviar_email("Feedback de impressoras", f"{avisos_formatados}")
-    return jsonify(results)
+    return jsonify([{"unidade": unidade, "setor": setor, "marca": marca, "ip": ip, "status": status} 
+                    for (unidade, setor, marca, ip), status in zip(impressoras, resultados)])
 
+def requisitar_api():
+    print("Executando requisição para API externa...")
+    try:
+        response = requests.get("http://127.0.0.1:5000/toner-levels")
+        print(f"Resposta da API: {response.status_code} - {response.json()}")
+    except requests.exceptions.RequestException as e:
+        print(f"Erro ao conectar à API: {e}")
+        
+def agendar_tarefas():
+    schedule.every().day.at("08:00").do(requisitar_api)
+    schedule.every().day.at("16:42").do(requisitar_api)
+
+    print("Rodando loop...")
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
 
 if __name__ == '__main__':
     initialize_db()
+    tarefa_thread = threading.Thread(target=agendar_tarefas)
+    tarefa_thread.daemon = True
+    tarefa_thread.start()
     app.run(debug=True)
