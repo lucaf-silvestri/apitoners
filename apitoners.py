@@ -11,6 +11,14 @@ import requests
 import threading
 from openpyxl import Workbook
 import os
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
+import warnings
 
 avisos = []
 
@@ -38,7 +46,7 @@ def enviar_email(assunto, corpo):
         try:
             servidor.quit()
         except NameError:
-            pass  # Variável não foi definida; não há conexão para fechar
+            pass
         except Exception as e:
             print(f"Erro ao fechar o servidor SMTP: {e}")
 
@@ -72,27 +80,90 @@ def get_impressoras():
     conn.close()
     return impressoras
 
-def get_toner_level(ip):
+def get_toner_level(ip, marca):
     try:
         toner_level = 0
-        response = requests.get(f'http://{ip}', verify=False, timeout=5)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        div_tag = soup.find('h1', {'class': 'title-lt-md'})
-        texto = div_tag.text.strip()
-        print(texto)
-    
-        image = soup.find('img', {'class': 'tonerremain'})
+        if marca == "BROTHER":
+            response = requests.get(f'http://{ip}', verify=False, timeout=5)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            image = soup.find('img', {'class': 'tonerremain'})
 
-        if image:
+            
             height = int(image.get('height', 0))
             toner_level = (height * 100) / 56
-            
+                
             if toner_level <= 100:
                 avisos.append(f"Toner baixo da impressora: {ip}. Apenas {toner_level:.2f}%.")
+            
+                return f"{toner_level:.2f}%"
+        elif marca == "RICOH":
+            options = Options()
+            # options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--ignore-certificate-errors")
+            
+            service = Service('chromedriver.exe')  
+            driver = webdriver.Chrome(service=service, options=options)
+            
+            toner_level = 0
+            url = f"http://{ip}"
+            driver.get(url)
+                
+            wait = WebDriverWait(driver, 10)
+            elements = wait.until(EC.presence_of_all_elements_located((By.CLASS_NAME, 'settingCategoryL11')))
         
-            return f"{toner_level:.2f}%"
+            if len(elements) >= 5:
+                print(elements)
+                fifth_element = elements[4]
+                classToner = fifth_element.text.strip()
+            else:
+                warnings.warn(f"Menos de 5 elementos encontrados com a classe 'settingCategoryL11' no IP {ip}")
+                return "Erro: Elementos insuficientes", []
+            
+            if classToner == "Remaining Level 5":
+                toner_level = 100
+            elif classToner == "Remaining Level 4":
+                toner_level = 75
+            elif classToner == "Remaining Level 3":
+                toner_level = 50
+            elif classToner == "Remaining Level 2":
+                toner_level = 25
+            else:
+                toner_level = 0
+                
+            if toner_level <= 100:
+                avisos.append(f"Toner baixo da impressora: {ip}. Apenas {toner_level:.2f}%.")
+                
+            return f"{toner_level}%"
+        elif marca == "SAMSUNG":
+            options = Options()
+            # options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--ignore-certificate-errors")
+            
+            service = Service('chromedriver.exe')  
+            driver = webdriver.Chrome(service=service, options=options)
+            
+            toner_level = 0
+            url = f"http://{ip}"
+            driver.get(url)
+                
+            wait = WebDriverWait(driver, 10)
+            elements = wait.until(EC.presence_of_all_elements_located((By.CLASS_NAME, 'x-column')))
+        
+            elemento28 = elements[27]
+            toner_level = int(elemento28.text.strip().replace('%', ''))
+                
+            if toner_level <= 100:
+                avisos.append(f"Toner baixo da impressora: {ip}. Apenas {toner_level:.2f}%.")
+                
+            return f"{toner_level}%"
     
     except requests.exceptions.RequestException as e:
         return f"Erro ao conectar ao IP {ip}: {e}"
@@ -127,7 +198,7 @@ def toner_levels():
     resultados = []
 
     for unidade, setor, marca, ip in impressoras:
-        toner_level = get_toner_level(ip)
+        toner_level = get_toner_level(ip, marca)
         resultados.append(toner_level)
     
     gerar_planilha(impressoras, resultados)
@@ -147,7 +218,7 @@ def requisitar_api():
         
 def agendar_tarefas():
     schedule.every().day.at("08:00").do(requisitar_api)
-    schedule.every().day.at("16:42").do(requisitar_api)
+    schedule.every().day.at("16:30").do(requisitar_api)
 
     print("Rodando loop...")
     while True:
