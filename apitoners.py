@@ -218,7 +218,7 @@ def requisitar_api():
         
 def agendar_tarefas():
     schedule.every().day.at("08:00").do(requisitar_api)
-    schedule.every().day.at("16:30").do(requisitar_api)
+    schedule.every().day.at("13:30").do(requisitar_api)
 
     print("Rodando loop...")
     while True:
